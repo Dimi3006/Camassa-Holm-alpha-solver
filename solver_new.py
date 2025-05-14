@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy 
 import tqdm
+import time
 import seaborn as sns
 import os
 
@@ -16,7 +18,7 @@ plt.rcParams.update({
 })
 
 # Define the folder path
-folder_path = r'C:\Users\dimit\Desktop\Abgabe BA'
+folder_path = r'C:\Users\dimit\vscode\Camassa_Holm_Alpha_solver'
 
 # Ensure the folder exists
 os.makedirs(folder_path, exist_ok=True)
@@ -73,16 +75,17 @@ def P_matrix(dx, alpha, J):
     :param J: amount of discrete spatial points
     :return: system matrix of the linear system
     """
-    A = np.zeros((J, J))
-    for i in range(J):
-        A[i, i] = (2*alpha**2) + dx**2
+    # Create the matrix A using sparse format (CSR)
+    diag = (2 * alpha**2) + dx**2
+    off_diag = -alpha**2
 
-    for j in range(J-1):
-        A[j, j+1] = -alpha**2
-        A[j+1, j] = -alpha**2
+    # Construct the sparse matrix
+    A = scipy.sparse.diags([off_diag, diag, off_diag], offsets=[-1, 0, 1], shape=(J, J), format="csr")
 
-    A[0, -1] = -alpha**2
-    A[-1, 0] = -alpha**2
+    # Apply periodic boundary conditions
+    A[0, -1] = off_diag
+    A[-1, 0] = off_diag
+
     return A
 
 def get_rhs(u_list, dx, alpha):
@@ -140,7 +143,8 @@ def backward_diff(u_list, dx):
     return q
     
 # alpha_list = [0.001]
-dt_list = [0.00001]#, 0.0003]
+# dt_list = [0.00001]#, 0.0003]
+dt_list = [0.0001]
 for dt in dt_list:
     """ENTER SIMULATION DATA HERE"""
     "----------------------------------------------------------------------------------------------------------------------"
@@ -149,8 +153,9 @@ for dt in dt_list:
     # dt = 0.003
     # dx = 0.007  # seems good for alpha = 0.1 in the inviscid case
     # dt = 0.0001 # seems good for alpha = 0.1 in the inviscid case
+    # dx=0.01
     alpha = 0.01
-    nu = 0.01
+    nu = 0.1
     a = -6
     b = 6
     T = 0.3
@@ -177,9 +182,8 @@ for dt in dt_list:
     initial_mass = dx*(np.sum(u_start[1:]))
 
     '''Solve P-equation for the initial time'''
-    A = P_matrix(dx, alpha, J)
-    P_0 = np.linalg.solve(A, get_rhs(u_start, dx, alpha))
-
+    A_sparse = P_matrix(dx, alpha, J)
+    P_0 = scipy.sparse.linalg.cg(A_sparse, get_rhs(u_start, dx, alpha))[0]
 
 
     '''Perform simulation'''
@@ -190,13 +194,16 @@ for dt in dt_list:
     q_list = [q_start]
     print(f'Solving Camassa-Holm equation with alpha={alpha} and nu={nu}')
     print('Starting simulation')
+    start_time = time.time()
     for _ in tqdm.tqdm(range(len(t_list)-1)):
         q_list.append(backward_diff(u_list[-1], dx))
         u_list.append(u_new(u_list[-1], dx, dt, P_list[-1], nu))
-        P_list.append(np.linalg.solve(A, get_rhs(u_list[-1], dx, alpha)))
+        P_list.append(scipy.sparse.linalg.cg(A_sparse, get_rhs(u_list[-1], dx, alpha))[0])
         energies.append((0.5 * np.linalg.norm(u_list[-1][1:]) ** 2 \
                         + 0.5 * alpha ** 2 * np.linalg.norm(q_list[-1][1:]) ** 2) * dx)
         mass.append(dx * np.sum(u_list[-1][:-1]))
+    stop_time = time.time()
+    print(f'Time to solve: {stop_time - start_time} seconds')
     print('Simulation finished')
 
     """Evaluate simulation results"""
@@ -228,16 +235,17 @@ plt.title(r'Discrete approximations for $\nu$' + f'={nu}' + r' and different $\a
 # Remove top/right spines for a cleaner look
 plt.gca().spines["top"].set_visible(False)
 plt.gca().spines["right"].set_visible(False)
+plt.show()
 
 
-# plt.plot(t_list, energies)
-# plt.xlabel(r'$t$')
-# plt.ylabel(r'Discrete $\alpha$-energy')
-# plt.title(r'Approximations of $E(t)$ over time')
-# plt.xlim((0, T))
-# plt.legend()
-# plt.gca().spines["top"].set_visible(False)
-# plt.gca().spines["right"].set_visible(False)
+plt.plot(t_list, energies)
+plt.xlabel(r'$t$')
+plt.ylabel(r'Discrete $\alpha$-energy')
+plt.title(r'Approximations of $E(t)$ over time')
+plt.xlim((0, T))
+plt.legend()
+plt.gca().spines["top"].set_visible(False)
+plt.gca().spines["right"].set_visible(False)
 
 
 # plt.savefig(file_path, format="pgf", bbox_inches="tight")
