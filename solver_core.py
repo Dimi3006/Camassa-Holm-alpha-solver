@@ -18,6 +18,15 @@ plt.rcParams.update({
     "pgf.rcfonts": False,          # Use Matplotlib settings for font sizes
 })
 
+# Define the folder path
+folder_path = r'C:\Users\dimit\vscode\Camassa_Holm_Alpha_solver'
+
+# Ensure the folder exists
+os.makedirs(folder_path, exist_ok=True)
+
+# Define the full file path
+file_path = os.path.join(folder_path, 'my_experiment.pgf')
+
 '''
 Implementation of a finite-difference scheme to solve the inviscid and viscous Camassa-Holm equation with PBC 
 Dimitrios Geladaris, 30.07.2024
@@ -212,7 +221,7 @@ def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T):
 
     return q_list, u_list, P_list, energies, mass
 
-def plot_discrete_approximation(plot_times, T, u_list, x_list, alpha, nu, save=False):
+def plot_discrete_approximation(plot_times, T, u_list, x_list, a, b, alpha, nu, save=False):
     """
     Plot the discrete approximation at plot_times over space x
     :param plot_times: list of times to plot
@@ -321,13 +330,13 @@ if __name__ == "__main__":
     '''Plot the discrete approximation at different times'''
     # Make sure to choose times that are less than T
     plot_times = [0.1, 0.3, 1, 2]
-    plot_discrete_approximation(plot_times, T, u_list, x_list, a, b, alpha, nu, save=False)
+    plot_discrete_approximation(plot_times, T, u_list, x_list, a, b, alpha, nu, False)
 
 
     '''Plot the discrete energy over time'''
-    plot_energy(energy_list, t_list, T, alpha, nu, save=False)
+    plot_energy(energy_list, t_list, T, alpha, nu, False)
 
     '''Plot the discrete mass over time'''
-    plot_mass(mass_list, t_list, T, alpha, nu, save=False)
+    plot_mass(mass_list, t_list, T, alpha, nu, False)
 
 

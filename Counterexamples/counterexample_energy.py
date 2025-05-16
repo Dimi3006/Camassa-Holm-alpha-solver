@@ -5,7 +5,7 @@ from solver_core import *
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
 # Define the folder path
-folder_path = r'C:\Users\dimit\vscode\Camassa_Holm_Alpha_solver'
+folder_path = r'C:\Users\dimit\vscode\Camassa_Holm_Alpha_solver\Counterexamples'
 
 # Ensure the folder exists
 os.makedirs(folder_path, exist_ok=True)

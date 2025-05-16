@@ -3,6 +3,15 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from solver_core import *
 
+# Define the folder path
+folder_path = r'C:\Users\dimit\vscode\Camassa_Holm_Alpha_solver\Counterexamples'
+
+# Ensure the folder exists
+os.makedirs(folder_path, exist_ok=True)
+
+# Define the full file path
+file_path = os.path.join(folder_path, 'counterexample_velocity.pgf')
+
 if __name__ == "__main__":
 
     """ENTER SIMULATION DATA HERE"""
@@ -15,7 +24,7 @@ if __name__ == "__main__":
     b = 6
     T = 0.35
     J = int((b-a)/dx)
-    save = False
+    save = True
 
     '''Initialize initial values for filtered velocity u'''
     x_list = np.linspace(a, b, J)
@@ -40,7 +49,7 @@ if __name__ == "__main__":
         # Convert in terms of time steps
         plot_time = int(0.3/dt)
         linestyle = linestyles[i % len(linestyles)]  # Wiederholt Muster bei Bedarf
-        plt.plot(x_list, u_list[plot_time], label=r'$dt$' + f'={dt}', linestyle=linestyle)
+        plt.plot(x_list, u_list[plot_time], label=r'$\Delta t$' + f'={dt}', linestyle=linestyle)
 
     plt.xlabel(r'$x$')
     plt.ylabel(r'Discrete approximations to $u$')
