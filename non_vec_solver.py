@@ -94,14 +94,14 @@ def get_rhs(u_list, dx, alpha):
     :param u_list: u approximation of the current time step
     :param dx: spatial discretization parameter
     :param alpha: filtering parameter
+    :param nu: viscosity parameter
     :return: right-hand side vector of the linear system
     """
-    u = u_list
-    abs_u = np.abs(u)
-    rhs = np.zeros_like(u)
-    # Vectorized computation for indices 1 to len(u)-1
-    rhs[1:] = dx**2 * ((u[1:] + abs_u[1:])**2 / 4 + (u[:-1] - abs_u[:-1])**2 / 4) \
-              + (alpha**2 / 2) * (u[1:] - u[:-1])**2
+    rhs = np.zeros_like(u_list)
+    for j in range(1, len(u_list)):
+        rhs[j] = dx**2 *(u_list[j] + np.abs(u_list[j]))**2/4 + dx**2 *(u_list[j-1] - np.abs(u_list[j-1]))**2/4 \
+                 + alpha**2/(2) * (u_list[j] - u_list[j-1])**2
+
     rhs[0] = rhs[-1]
     return rhs
 
@@ -117,36 +117,28 @@ def linear_solver(A, b):
         raise ValueError("Conjugate gradient solver did not converge")
     return x
 
+
+'''Compute the next discrete approximation to the filtered velocity u'''
 def u_new(u_old, dx, dt, P_old, nu):
     """
-    Vectorized version for periodic grid where u_old[-1] == u_old[0].
+    Perform one time step dt to obtain the next discrete approximation at t^(n+1)
+    :param u_old: list of discrete u at the old time t^n
+    :param dx: spatial discretization parameter
+    :param dt: time step
+    :param P_old: discrete solution of the elliptic problem at the old time t^n
+    :return: list containing the discrete approximation at t^(n+1)
     """
-    u_old = np.asarray(u_old)
-    P_old = np.asarray(P_old)
-
-    # Only compute on the first J-1 points (excluding duplicate)
-    u_inner = u_old[:-1]
-    u_plus = np.roll(u_inner, -1)
-    u_minus = np.roll(u_inner, 1)
-
-    P_inner = P_old[:-1]
-    P_plus = np.roll(P_inner, -1)
-
-    advective_flux = (
-        (u_inner + np.abs(u_inner)) / 2 * (u_inner - u_minus) +
-        (u_inner - np.abs(u_inner)) / 2 * (u_plus - u_inner)
-    )
-    pressure_term = P_plus - P_inner
-    diffusion_term = nu * (u_plus - 2 * u_inner + u_minus) / dx
-
-    u_next_inner = u_inner - dt / dx * (advective_flux + pressure_term - diffusion_term)
-
-    # Add back the duplicated endpoint to preserve PBC
-    u_next = np.append(u_next_inner, u_next_inner[0])
-
-    return u_next
-
-
+    u_new = np.zeros_like(u_old)
+    J = len(u_old)
+    for j in range(J-1):
+        if j == 0:
+            u_new[j] = u_old[j] - dt/dx * ((u_old[j] + np.abs(u_old[j]))/2 * (u_old[j] - u_old[-2]) \
+                                + (u_old[j] - np.abs(u_old[j]))/2 * (u_old[j+1] - u_old[j]) + (P_old[j+1] - P_old[j])- nu*(u_old[j+1] - 2*u_old[j] + u_old[-2])/dx)
+        else:
+            u_new[j] = u_old[j] - dt/dx * ((u_old[j] + np.abs(u_old[j]))/2 * (u_old[j] - u_old[j-1]) \
+                                + (u_old[j] - np.abs(u_old[j]))/2 * (u_old[j+1] - u_old[j]) + (P_old[j+1] - P_old[j]) - nu*(u_old[j+1] - 2*u_old[j] + u_old[j-1])/dx)
+    u_new[-1] = u_new[0] # PBC
+    return u_new
 
 '''Compute the backward-difference q^n for given u'''
 def backward_diff(u_list, dx):
@@ -156,9 +148,10 @@ def backward_diff(u_list, dx):
     :param dx: spatial discretization parameter
     :return: list containing the backward-difference q^n
     """
-    q = np.empty_like(u_list)
-    q[1:] = (u_list[1:] - u_list[:-1]) / dx
-    q[0] = (u_list[0] - u_list[-2]) / dx  # PBC
+    q = np.zeros_like(u_list)
+    for i in range(1, len(u_list)):
+        q[i] = (u_list[i] - u_list[i - 1]) / dx
+    q[0] = (u_list[0] - u_list[-2]) / dx # PBC
     return q
 
 def compute_energy(u_list, q_list, alpha, dx):
@@ -216,12 +209,15 @@ def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T):
     q_list = [q_start]
     print(f'Solving Camassa-Holm equation with alpha={alpha}, nu={nu}, dx={dx}, dt={dt}')
     print('Starting simulation')
+    start_time = time.time()
     for _ in tqdm.tqdm(range(len(t_list)-1)):
         q_list.append(backward_diff(u_list[-1], dx))
         u_list.append(u_new(u_list[-1], dx, dt, P_list[-1], nu))
         P_list.append(linear_solver(A_sparse, get_rhs(u_list[-1], dx, alpha)))
         energies.append(compute_energy(u_list[-1], q_list[-1], alpha, dx))
         mass.append(compute_mass(u_list[-1], dx))
+    stop_time = time.time()
+    print(f'Time to solve: {stop_time - start_time} seconds. Simulation finshed.')
 
     return q_list, u_list, P_list, energies, mass
 
@@ -298,25 +294,7 @@ def plot_mass(mass, t_list, T, alpha, nu, save=False):
         plt.savefig(file_path, format="pgf", bbox_inches="tight")
     plt.show()
 
-def compute_timestep(dx, alpha, nu):
-    """
-    Compute the time step based on the CFL condition
-    :param dx: spatial discretization parameter
-    :param alpha: filtering parameter
-    :param nu: viscosity parameter
-    :return: time step dt
-    """
-    return 1/2 * dx**2 / nu * alpha  # CFL condition for stability
-
-# def compute_timestep(dx, u_list):
-#     """
-#     Compute the time step based on the CFL condition
-#     :param dx: spatial discretization parameter
-#     :param u_list: list containing the initial condition for u
-#     :return: time step dt
-#     """
-#     max_speed = np.max(u_list)  # Maximum speed in the initial condition
-#     return 0.5 * dx / max_speed  # CFL condition for stability, assuming nu=0
+    
 
 
 if __name__ == "__main__":
@@ -324,17 +302,16 @@ if __name__ == "__main__":
     """ENTER SIMULATION DATA HERE"""
     "----------------------------------------------------------------------------------------------------------------------"
     '''Define simulation paramaters'''
-    # dx = 0.002
-    # dt = 0.00001
-    # alpha = 0.00001
-    # nu = 0.01 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
     dx = 0.02
     dt = 0.003
+    # dx = 0.007  # seems good for alpha = 0.1 in the inviscid case
+    # dt = 0.0001 # seems good for alpha = 0.1 in the inviscid case
+    # dx=0.01
     alpha = 0.1
-    nu = 0.01 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
+    nu = 0.01
     a = -6
     b = 6
-    T = 6
+    T = 2.5
     J = int((b-a)/dx)
     N = int(T/dt)
 
@@ -346,17 +323,13 @@ if __name__ == "__main__":
     # u_start = u_peakonantipeakon(x_list) # peakon-antipeakon example
     "----------------------------------------------------------------------------------------------------------------------"
 
-    # measure time to solve
-    start_time = time.time()
     q_list, u_list, P_list, energy_list, mass_list = solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T)
-    stop_time = time.time()
-    print(f'Time to solve: {stop_time - start_time} seconds. Simulation finished.')
 
     """Evaluate simulation results"""
 
     '''Plot the discrete approximation at different times'''
     # Make sure to choose times that are less than T
-    plot_times = [0.1, 0.3, 0.4, 1.0, 2, 3, 4, 5, 5.5]
+    plot_times = [0.1, 0.3, 1, 2]
     plot_discrete_approximation(plot_times, T, u_list, x_list, a, b, alpha, nu, False)
 
 
