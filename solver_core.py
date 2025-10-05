@@ -225,7 +225,7 @@ def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T):
 
     return q_list, u_list, P_list, energies, mass
 
-def plot_discrete_approximation(plot_times, T, u_list, x_list, a, b, alpha, nu, save=False):
+def plot_discrete_approximation(plot_times, T, dt, u_list, x_list, a, b, alpha, nu, save=False):
     """
     Plot the discrete approximation at plot_times over space x
     :param plot_times: list of times to plot
@@ -357,7 +357,7 @@ if __name__ == "__main__":
     '''Plot the discrete approximation at different times'''
     # Make sure to choose times that are less than T
     plot_times = [0.1, 0.3, 0.4, 1.0, 2, 3, 4, 5, 5.5]
-    plot_discrete_approximation(plot_times, T, u_list, x_list, a, b, alpha, nu, False)
+    plot_discrete_approximation(plot_times, T, dt, u_list, x_list, a, b, alpha, nu, False)
 
 
     '''Plot the discrete energy over time'''
