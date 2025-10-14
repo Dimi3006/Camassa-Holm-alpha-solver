@@ -13,63 +13,6 @@ os.makedirs(folder_path, exist_ok=True)
 # Define the full file path
 file_path = os.path.join(folder_path, 'counterexample_energies.pgf')
 
-# Overwrite to LxF flux
-def u_new_lxf(u_old, dx, dt, P_old, nu):
-    """
-    Vectorized version for periodic grid using Lax-Friedrichs (LxF) flux.
-    """
-    u_old = np.asarray(u_old)
-    P_old = np.asarray(P_old)
-
-    # Only compute on the first J-1 points (excluding duplicate)
-    u_inner = u_old[:-1]
-    u_plus = np.roll(u_inner, -1)
-    u_minus = np.roll(u_inner, 1)
-
-    P_inner = P_old[:-1]
-    P_plus = np.roll(P_inner, -1)
-
-    # Lax-Friedrichs flux for the nonlinear term
-    flux_plus = 0.5 * (u_inner**2 + u_plus**2) / 2 - 0.5 * dx/dt * (u_plus - u_inner)
-    flux_minus = 0.5 * (u_inner**2 + u_minus**2) / 2 - 0.5 * dx/dt * (u_inner - u_minus)
-    advective_flux = (flux_plus - flux_minus) / dx
-
-    pressure_term = (P_plus - P_inner) / dx
-    diffusion_term = nu * (u_plus - 2 * u_inner + u_minus) / dx**2
-
-    u_next_inner = u_inner - dt * (advective_flux + pressure_term - diffusion_term)
-
-    # Add back the duplicated endpoint to preserve PBC
-    u_next = np.append(u_next_inner, u_next_inner[0])
-
-    return u_next
-
-def u_new_central(u_old, dx, dt, P_old, nu):
-    """
-    Vectorized version for periodic grid using central difference flux.
-    """
-    u_old = np.asarray(u_old)
-    P_old = np.asarray(P_old)
-
-    u_inner = u_old[:-1]
-    u_plus = np.roll(u_inner, -1)
-    u_minus = np.roll(u_inner, 1)
-
-    P_inner = P_old[:-1]
-    P_plus = np.roll(P_inner, -1)
-
-    # Central difference for the nonlinear term
-    advective_flux = (u_plus**2 - u_minus**2) / (4 * dx)
-
-    pressure_term = (P_plus - P_inner) / dx
-    diffusion_term = nu * (u_plus - 2 * u_inner + u_minus) / dx**2
-
-    u_next_inner = u_inner - dt * (advective_flux + pressure_term - diffusion_term)
-
-    u_next = np.append(u_next_inner, u_next_inner[0])
-
-    return u_next
-
 def u_new_split(u_old, dx, dt, P_old, nu):
     """
     Vectorized version for periodic grid where u_old[-1] == u_old[0].
@@ -117,7 +60,7 @@ def get_rhs_split(u_list, dx, alpha):
     return rhs
 
 
-def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T):
+def solve_CamassaHolm_conservative(u_start, dx, dt, a, b, alpha, nu, T):
     """
     Solve the Camassa-Holm equation with given parameters
     :param u_start: initial condition for u
@@ -172,26 +115,27 @@ if __name__ == "__main__":
     # alpha = 0.00001
     # nu = 0.01 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
     dx = 0.02
-    dt = 0.0001
-    alpha = 0.01
+    alpha = 0.1
     nu = 0.1 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
     a = -6
     b = 6
-    T = 5
+    T = 1
     J = int((b-a)/dx)
-    N = int(T/dt)
 
     '''Initialize initial values for filtered velocity u'''
     x_list = np.linspace(a, b, J)
-    t_list = np.linspace(0, T, N)
     u_start = u_compact(x_list) # compact support case
     # u_start = u_peakon(x_list) # peakon case
     # u_start = u_peakonantipeakon(x_list) # peakon-antipeakon example
+
+    dt = compute_timestep(dx, nu, alpha, u_start)
+    N = int(T/dt)
+    t_list = np.linspace(0, T, N)
     "----------------------------------------------------------------------------------------------------------------------"
 
     # measure time to solve
     start_time = time.time()
-    q_list, u_list, P_list, energy_list, mass_list = solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T)
+    q_list, u_list, P_list, energy_list, mass_list = solve_CamassaHolm_conservative(u_start, dx, dt, a, b, alpha, nu, T)
     stop_time = time.time()
     print(f'Time to solve: {stop_time - start_time} seconds. Simulation finished.')
 
@@ -199,7 +143,7 @@ if __name__ == "__main__":
 
     '''Plot the discrete approximation at different times'''
     # Make sure to choose times that are less than T
-    plot_times = [0.1, 0.3, 0.4, 1.0, 2, 3, 4.9]
+    plot_times = [0.1, 0.2, 0.3, 0.4, 0.9]
     plot_discrete_approximation(plot_times, T, dt, u_list, x_list, a, b, alpha, nu, False)
 
 

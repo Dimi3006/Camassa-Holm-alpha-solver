@@ -180,7 +180,7 @@ def compute_mass(u_list, dx):
     """
     return dx * (np.sum(u_list[:-1]))
 
-def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T):
+def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T, save_every=None):
     """
     Solve the Camassa-Holm equation with given parameters
     :param u_start: initial condition for u
@@ -189,7 +189,8 @@ def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T):
     :param alpha: filtering parameter
     :param nu: viscosity parameter
     :param T: final time
-    :return: lists of discrete approximations to q, u, P, E, U at each time step
+    :param save_every: save results every 'save_every' steps (default: save every step)
+    :return: lists of discrete approximations to q, u, P, E, U at each saved time step
     """
     J = int((b-a)/dx)
     N = int(T/dt)
@@ -207,21 +208,41 @@ def solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T):
     A_sparse = P_matrix(dx, alpha, J)
     P_0 = linear_solver(A_sparse, get_rhs(u_start, dx, alpha))
 
+    # Set save_every to 1 if not provided
+    if save_every is None or save_every < 1:
+        save_every = 1
 
-    '''Perform simulation'''
-    u_list = [u_start]
-    P_list = [P_0]
-    energies = [initial_energy]
-    mass = [initial_mass]
-    q_list = [q_start]
+    u_list = []
+    P_list = []
+    energies = []
+    mass = []
+    q_list = []
+
     print(f'Solving Camassa-Holm equation with alpha={alpha}, nu={nu}, dx={dx}, dt={dt}')
     print('Starting simulation')
-    for _ in tqdm.tqdm(range(len(t_list)-1)):
-        q_list.append(backward_diff(u_list[-1], dx))
-        u_list.append(u_new(u_list[-1], dx, dt, P_list[-1], nu))
-        P_list.append(linear_solver(A_sparse, get_rhs(u_list[-1], dx, alpha)))
-        energies.append(compute_energy(u_list[-1], q_list[-1], alpha, dx))
-        mass.append(compute_mass(u_list[-1], dx))
+
+    u_curr = u_start
+    P_curr = P_0
+    q_curr = q_start
+
+    for n in tqdm.tqdm(range(N)):
+        # Always save energy and mass at every step
+        energies.append(compute_energy(u_curr, q_curr, alpha, dx))
+        mass.append(compute_mass(u_curr, dx))
+        if n % save_every == 0:
+            q_list.append(q_curr)
+            u_list.append(u_curr)
+            P_list.append(P_curr)
+        # Update for next step
+        q_curr = backward_diff(u_curr, dx)
+        u_curr = u_new(u_curr, dx, dt, P_curr, nu)
+        P_curr = linear_solver(A_sparse, get_rhs(u_curr, dx, alpha))
+
+    # Ensure the last step is saved
+    if (N-1) % save_every != 0:
+        q_list.append(q_curr)
+        u_list.append(u_curr)
+        P_list.append(P_curr)
 
     return q_list, u_list, P_list, energies, mass
 
@@ -244,7 +265,7 @@ def plot_discrete_approximation(plot_times, T, dt, u_list, x_list, a, b, alpha, 
     linestyles = ['-', '--', '-.', ':'] 
 
     for i, t in enumerate(plot_times):
-        linestyle = linestyles[i % len(linestyles)]  # Wiederholt Muster bei Bedarf
+        linestyle = linestyles[i % len(linestyles)] # Cycle through linestyles if more times than styles
         plt.plot(x_list, u_list[t], label=fr'$t={t*dt:.2f}$', linestyle=linestyle)
 
     plt.xlabel(r'$x$')
@@ -298,67 +319,98 @@ def plot_mass(mass, t_list, T, alpha, nu, save=False):
         plt.savefig(file_path, format="pgf", bbox_inches="tight")
     plt.show()
 
-def compute_timestep(dx, alpha, nu):
+def compute_save_times(T, dt, save_every):
+    """
+    Compute the time steps at which to save the results
+    :param T: final time of the simulation
+    :param dt: time step
+    :param save_every: save results every 'save_every' steps
+    :return: list of time steps at which to save the results
+    """
+    N = int(T/dt)
+    if save_every is None or save_every < 1:
+        save_every = 1
+    return [n*dt for n in range(0, N, save_every)]
+
+def compute_timestep(dx, nu, alpha, u_initial):
     """
     Compute the time step based on the CFL condition
     :param dx: spatial discretization parameter
-    :param alpha: filtering parameter
-    :param nu: viscosity parameter
+    :param u_list: list containing the initial condition for u
     :return: time step dt
     """
-    return 1/2 * dx**2 / nu * alpha  # CFL condition for stability
-
-# def compute_timestep(dx, u_list):
-#     """
-#     Compute the time step based on the CFL condition
-#     :param dx: spatial discretization parameter
-#     :param u_list: list containing the initial condition for u
-#     :return: time step dt
-#     """
-#     max_speed = np.max(u_list)  # Maximum speed in the initial condition
-#     return 0.5 * dx / max_speed  # CFL condition for stability, assuming nu=0
-
+    max_speed = np.max(np.abs(u_initial))  # Maximum speed in the initial condition
+    if nu == 0:
+        dt = 0.5 * alpha**2 * dx / (2 * max_speed)  # CFL condition for inviscid case
+    else:
+        dt = 0.5 * min(dx / (2 * max_speed), dx * dx / (2 * nu))  # CFL condition for stability
+    return dt
 
 if __name__ == "__main__":
 
     """ENTER SIMULATION DATA HERE"""
     "----------------------------------------------------------------------------------------------------------------------"
     '''Define simulation paramaters'''
-    # dx = 0.002
+    # dx = 0.0002
     # dt = 0.00001
-    # alpha = 0.00001
-    # nu = 0.01 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
-    dx = 0.02
-    dt = 0.003
-    alpha = 0.1
-    nu = 0.01 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
+    # alpha = 0.000001
+    # nu = 0.001 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
+    dx = 0.002
+    # dt = 0.00001
+    alpha = 0.0001
+    nu = .01 # Make sure to set alpha = O(nu^2) to approximate Burgers equation
     a = -6
     b = 6
-    T = 6
+    T = 1
     J = int((b-a)/dx)
-    N = int(T/dt)
+    save_every = None  # Save every 'save_every' steps, set to None to save every step
 
     '''Initialize initial values for filtered velocity u'''
     x_list = np.linspace(a, b, J)
-    t_list = np.linspace(0, T, N)
     u_start = u_compact(x_list) # compact support case
     # u_start = u_peakon(x_list) # peakon case
     # u_start = u_peakonantipeakon(x_list) # peakon-antipeakon example
+
+
+    # Compute dt based on CFL condition
+    dt = compute_timestep(dx, nu, alpha, u_start)
+    print(dt)
+    N = int(T/dt)
+    t_list = np.linspace(0, T, N)
+    
     "----------------------------------------------------------------------------------------------------------------------"
 
     # measure time to solve
     start_time = time.time()
-    q_list, u_list, P_list, energy_list, mass_list = solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T)
+    q_list, u_list, P_list, energy_list, mass_list = solve_CamassaHolm(u_start, dx, dt, a, b, alpha, nu, T, save_every)
     stop_time = time.time()
     print(f'Time to solve: {stop_time - start_time} seconds. Simulation finished.')
 
+
+
     """Evaluate simulation results"""
 
-    '''Plot the discrete approximation at different times'''
-    # Make sure to choose times that are less than T
-    plot_times = [0.1, 0.3, 0.4, 1.0, 2, 3, 4, 5, 5.5]
-    plot_discrete_approximation(plot_times, T, dt, u_list, x_list, a, b, alpha, nu, False)
+    '''Plot the discrete approximation at different times if save_every is None'''
+    if save_every is None:
+        # Make sure to choose times that are less than T
+        plot_times = [0.1, 0.2, 0.3, 0.4, 0.9]
+        plot_discrete_approximation(plot_times, T, dt, u_list, x_list, a, b, alpha, nu, False)
+    else:
+        # Plot at saved times
+        saved_times = compute_save_times(T, dt, save_every)
+        for u, t in zip(u_list, saved_times):
+            plt.plot(x_list, u, label=fr'$t={t:.2f}$')
+        plt.xlabel(r'$x$')
+        plt.ylabel(r'Discrete approximations to $u$')
+        plt.xlim((a, b))
+        plt.legend()
+        plt.title(r'Discrete approximations for $\nu$' + f'={nu}' + r' and $\alpha$' + f'={alpha}')
+        plt.gca().spines["top"].set_visible(False)
+        plt.gca().spines["right"].set_visible(False)
+        plt.show()
 
+
+    
 
     '''Plot the discrete energy over time'''
     plot_energy(energy_list, t_list, T, alpha, nu, False)
